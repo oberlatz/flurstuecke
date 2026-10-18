@@ -134,13 +134,15 @@ function setPos(latlng) {
   if (marker) marker.setLatLng(latlng); else marker = L.circleMarker(latlng, { radius: 7, color: "#0b6b4a", fillOpacity: .9 }).addTo(map);
 }
 
-document.getElementById("loc").onclick = () => {
+function locate() {
   if (!navigator.geolocation) { info("Standort wird von diesem Browser nicht unterstützt."); return; }
+  info("Suche Standort …");
   navigator.geolocation.getCurrentPosition(p => {
     const ll = L.latLng(p.coords.latitude, p.coords.longitude);
     map.setView(ll, 19); setPos(ll); query(ll);
-  }, e => info("Standort nicht verfügbar: " + e.message + ". Die Seite braucht https und die Standortfreigabe."), { enableHighAccuracy: true, timeout: 15000 });
-};
+  }, e => info("Standort nicht verfügbar: " + e.message + ". Die Seite braucht https und die Standortfreigabe. Du kannst die Karte trotzdem verschieben und antippen."), { enableHighAccuracy: true, timeout: 15000 });
+}
+document.getElementById("loc").onclick = locate;
 
 map.on("click", e => { setPos(e.latlng); query(e.latlng); });
 
@@ -311,6 +313,8 @@ async function search() {
 }
 document.getElementById("go").onclick = search;
 document.getElementById("sz").addEventListener("keydown", e => { if (e.key === "Enter") search(); });
+
+locate();   // Beim Laden direkt am eigenen Standort starten
 </script>
 </body>
 </html>
