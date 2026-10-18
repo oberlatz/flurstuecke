@@ -16,12 +16,17 @@
   /* Oben: Suchkapsel (zugeklappt nur ein Lupen-Knopf) */
   #top { position:fixed; z-index:1100; left:8px; right:8px; top:calc(8px + env(safe-area-inset-top, 0px)); display:flex; pointer-events:none; }
   #search { pointer-events:auto; display:flex; align-items:center; gap:6px; background:var(--glass); border:1px solid var(--line); border-radius:26px; padding:4px; box-shadow:0 2px 8px rgba(0,0,0,.25); }
-  #search.open { flex:1; }
-  #sbtn { width:40px; height:40px; padding:0; border-radius:50%; display:grid; place-items:center; flex:none; }
+  #search.open { flex:1; min-width:0; }
+  #top { min-width:0; }
+  #sbtn, #go { width:40px; height:40px; padding:0; border-radius:50%; display:grid; place-items:center; flex:none; }
+  #sbtn span, #go span { display:grid; }
+  #sbtn .i-close { display:none; }
+  #search.open #sbtn .i-close { display:grid; }
+  #search.open #sbtn .i-open { display:none; }
   #sfields { display:none; flex:1; gap:6px; min-width:0; }
   #search.open #sfields { display:flex; }
-  #sfields input { min-width:0; padding:8px; font:inherit; color:var(--fg); background:var(--bg); border:1px solid var(--line); border-radius:8px; }
-  #sg { width:5.2em; } #sf { width:3.4em; } #sz { flex:1; }
+  #sfields input { box-sizing:border-box; min-width:0; padding:8px; font:inherit; font-size:.95rem; color:var(--fg); background:var(--bg); border:1px solid var(--line); border-radius:8px; }
+  #sg { width:84px; flex:none; } #sf { width:56px; flex:none; } #sz { flex:1; width:0; }
 
   /* Unten: Standort-Knopf und eine schmale Infokarte */
   #bottom { position:fixed; z-index:1100; left:8px; right:8px; bottom:calc(8px + env(safe-area-inset-bottom, 0px)); display:flex; flex-direction:column; align-items:flex-end; gap:8px; pointer-events:none; }
@@ -42,12 +47,12 @@
 <div id="map"></div>
 <div id="top">
   <div id="search">
-    <button id="sbtn" aria-label="Suche öffnen oder schließen"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg></button>
+    <button id="sbtn" aria-label="Suche öffnen oder schließen"><span class="i-open"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg></span><span class="i-close"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></span></button>
     <div id="sfields">
       <input id="sg" inputmode="numeric" maxlength="4" placeholder="Gemarkung" aria-label="Gemarkungsnummer">
       <input id="sf" inputmode="numeric" maxlength="3" placeholder="Flur" aria-label="Flur">
       <input id="sz" placeholder="Flurstück" aria-label="Flurstück, z. B. 289 oder 289/2">
-      <button id="go">Suchen</button>
+      <button id="go" aria-label="Suchen"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg></button>
     </div>
   </div>
 </div>
