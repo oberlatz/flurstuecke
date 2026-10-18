@@ -48,26 +48,74 @@ const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
 const cr = L.control({ position: "bottomright" });
 cr.onAdd = () => {
   const d = L.DomUtil.create("div", "cr");
-  d.innerHTML = '<div class="crt" hidden>&copy; OpenStreetMap-Mitwirkende<br>&copy; GeoBasis-DE/LGB, dl-de/by-2-0</div><button class="crb" aria-label="Quellen">&copy;</button>';
+  d.innerHTML = '<div class="crt" hidden>&copy; OpenStreetMap-Mitwirkende<br>&copy; GeoBasis-DE/LGB, dl-de/by-2-0<br><a href="#" class="clr">Karten-Cache leeren</a></div><button class="crb" aria-label="Quellen">&copy;</button>';
   L.DomEvent.disableClickPropagation(d);
+  d.querySelector(".clr").onclick = e => {
+    e.preventDefault();
+    caches.delete(CACHE_NAME).then(() => { flurView = null; updateFlur(); });
+  };
   d.querySelector("button").onclick = () => { const t = d.querySelector(".crt"); t.hidden = !t.hidden; };
   return d;
 };
 cr.addTo(map);
-let flurOverlay = null;
-function updateFlur() {
-  const b = map.getBounds().pad(0.2);
-  const sw = L.CRS.EPSG3857.project(b.getSouthWest());
-  const ne = L.CRS.EPSG3857.project(b.getNorthEast());
-  const w = Math.min(2048, Math.round(map.getSize().x * 1.4));
-  const h = Math.min(2048, Math.round(w * (ne.y - sw.y) / (ne.x - sw.x)));
+// --- Cache: Flurstücke ändern sich selten, Bilder werden 30 Tage lokal gespeichert ---
+// Die Bilder liegen auf einem festen Raster (Zoom + Rasterzelle), damit dieselbe Gegend
+// immer dieselbe Anfrage ergibt und aus dem Cache kommt.
+const CACHE_NAME = "flur-v1";
+const CACHE_MAX_AGE = 30 * 24 * 3600 * 1000;
+const CELL = 512;   // Rasterweite in Pixeln
+
+async function cachedImageUrl(url) {
+  try {
+    const cache = await caches.open(CACHE_NAME);
+    const hit = await cache.match(url);
+    if (hit && Date.now() - Number(hit.headers.get("x-cached-at") || 0) < CACHE_MAX_AGE) {
+      return URL.createObjectURL(await hit.blob());
+    }
+    const r = await fetch(url);
+    if (!r.ok || !(r.headers.get("content-type") || "").startsWith("image")) throw new Error("kein Bild");
+    const blob = await r.blob();
+    await cache.put(url, new Response(blob, { headers: { "x-cached-at": String(Date.now()), "content-type": blob.type } }));
+    return URL.createObjectURL(blob);
+  } catch (e) {
+    return url;   // Fallback: direkt vom Dienst laden
+  }
+}
+
+let flurOverlay = null, flurView = null, flurToken = 0;
+async function updateFlur() {
+  const P = L.CRS.EPSG3857;
+  const z = map.getZoom();
+  const vsw = P.project(map.getBounds().getSouthWest());
+  const vne = P.project(map.getBounds().getNorthEast());
+  if (flurView && flurView.z === z && vsw.x >= flurView.x0 && vne.x <= flurView.x1 && vsw.y >= flurView.y0 && vne.y <= flurView.y1) return;
+  const res = 156543.03392804097 / Math.pow(2, z);          // Meter pro Pixel
+  const s = map.getSize();
+  const img = Math.min(2048, Math.max(1536, Math.ceil(Math.max(s.x, s.y) * 1.5 / CELL) * CELL));
+  const c = P.project(map.getCenter());
+  const cx = Math.round(c.x / (CELL * res)) * CELL * res;
+  const cy = Math.round(c.y / (CELL * res)) * CELL * res;
+  const half = img / 2 * res;
+  const view = { z, x0: cx - half, x1: cx + half, y0: cy - half, y1: cy + half };
   const url = WMS_URL + "?" + new URLSearchParams({
     SERVICE: "WMS", VERSION: "1.3.0", REQUEST: "GetMap", LAYERS: WMS_LAYER, STYLES: "",
     FORMAT: "image/png", TRANSPARENT: "TRUE", CRS: "EPSG:3857",
-    BBOX: [sw.x, sw.y, ne.x, ne.y].join(","), WIDTH: w, HEIGHT: h
+    BBOX: [view.x0, view.y0, view.x1, view.y1].map(v => v.toFixed(3)).join(","), WIDTH: img, HEIGHT: img
   });
-  const next = L.imageOverlay(url, b).addTo(map);
-  next.once("load", () => { if (flurOverlay) map.removeLayer(flurOverlay); flurOverlay = next; });
+  const token = ++flurToken;
+  const src = await cachedImageUrl(url);
+  if (token !== flurToken) return;
+  const bounds = L.latLngBounds(P.unproject(L.point(view.x0, view.y0)), P.unproject(L.point(view.x1, view.y1)));
+  const next = L.imageOverlay(src, bounds).addTo(map);
+  next.once("load", () => {
+    if (token !== flurToken) { map.removeLayer(next); return; }
+    if (flurOverlay) {
+      map.removeLayer(flurOverlay);
+      if (flurOverlay._blob) URL.revokeObjectURL(flurOverlay._blob);
+    }
+    next._blob = src.startsWith("blob:") ? src : null;
+    flurOverlay = next; flurView = view;
+  });
 }
 map.on("moveend", updateFlur);
 updateFlur();
