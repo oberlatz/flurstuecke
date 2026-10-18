@@ -16,6 +16,9 @@
   button.alt { background:transparent; color:var(--acc); }
   #map { flex:1; min-height:0; }
   #info { padding:10px 12px; padding-bottom:calc(10px + env(safe-area-inset-bottom, 0px)); border-top:1px solid var(--line); max-height:30vh; overflow:auto; font-size:.9rem; }
+  .cr { text-align:right; }
+  .crb { padding:1px 8px; font-size:.8rem; opacity:.75; background:var(--bg); color:var(--acc); border-radius:6px; }
+  .crt { background:var(--bg); color:var(--fg); font-size:.75rem; padding:4px 8px; border-radius:6px; margin-bottom:4px; }
   #info table { border-collapse:collapse; }
   #info td, #info th { border-bottom:1px solid var(--line); padding:2px 8px 2px 0; text-align:left; }
 </style>
@@ -35,14 +38,22 @@ const WMS_URL   = "https://inspire.brandenburg.de/services/cp_alkis_wms";
 const WMS_LAYER = "CP.CadastralParcel";   // INSPIRE-Standardname, bitte gegen GetCapabilities prüfen
 const START     = [52.35, 12.85];          // Raum Potsdam/Beetzsee
 
-const map = L.map("map").setView(START, 17);
+const map = L.map("map", { attributionControl: false }).setView(START, 17);
 const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
   maxZoom: 19, attribution: "&copy; OpenStreetMap-Mitwirkende"
 }).addTo(map);
 
 // Ein einziges WMS-Bild pro Kartenausschnitt statt Kacheln:
 // Der Dienst beschriftet jede Kachel einzeln, dadurch erschienen Flurstücksnummern mehrfach.
-map.attributionControl.addAttribution("&copy; GeoBasis-DE/LGB, dl-de/by-2-0");
+const cr = L.control({ position: "bottomright" });
+cr.onAdd = () => {
+  const d = L.DomUtil.create("div", "cr");
+  d.innerHTML = '<div class="crt" hidden>&copy; OpenStreetMap-Mitwirkende<br>&copy; GeoBasis-DE/LGB, dl-de/by-2-0</div><button class="crb" aria-label="Quellen">&copy;</button>';
+  L.DomEvent.disableClickPropagation(d);
+  d.querySelector("button").onclick = () => { const t = d.querySelector(".crt"); t.hidden = !t.hidden; };
+  return d;
+};
+cr.addTo(map);
 let flurOverlay = null;
 function updateFlur() {
   const b = map.getBounds().pad(0.2);
