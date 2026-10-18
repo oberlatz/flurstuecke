@@ -22,6 +22,8 @@
   .cr { text-align:right; }
   .crb { padding:1px 8px; font-size:.8rem; opacity:.75; background:var(--bg); color:var(--acc); border-radius:6px; }
   .crt { background:var(--bg); color:var(--fg); font-size:.75rem; padding:4px 8px; border-radius:6px; margin-bottom:4px; }
+  #iloc { border-left:4px solid #1a73e8; padding-left:8px; margin-bottom:6px; }
+  #isea { border-left:4px solid #d9480f; padding-left:8px; }
   #info table { border-collapse:collapse; }
   #info td, #info th { border-bottom:1px solid var(--line); padding:2px 8px 2px 0; text-align:left; }
 </style>
@@ -38,7 +40,7 @@
   <button id="go">Suchen</button>
 </div>
 <div id="map"></div>
-<div id="info">Karte antippen, um das Flurstück abzufragen.</div>
+<div id="info"><div id="iloc"><b>Standort:</b> wird ermittelt …</div><div id="isea">Karte antippen oder oben suchen.</div></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
@@ -51,6 +53,8 @@ const map = L.map("map", { attributionControl: false }).setView(START, 17);
 const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
   maxZoom: 19, attribution: "&copy; OpenStreetMap-Mitwirkende"
 }).addTo(map);
+map.createPane("flur");
+map.getPane("flur").style.zIndex = 250;
 
 // Ein einziges WMS-Bild pro Kartenausschnitt statt Kacheln:
 // Der Dienst beschriftet jede Kachel einzeln, dadurch erschienen Flurstücksnummern mehrfach.
@@ -115,7 +119,7 @@ async function updateFlur() {
   const src = await cachedImageUrl(url);
   if (token !== flurToken) return;
   const bounds = L.latLngBounds(P.unproject(L.point(view.x0, view.y0)), P.unproject(L.point(view.x1, view.y1)));
-  const next = L.imageOverlay(src, bounds).addTo(map);
+  const next = L.imageOverlay(src, bounds, { pane: "flur" }).addTo(map);
   next.once("load", () => {
     if (token !== flurToken) { map.removeLayer(next); return; }
     if (flurOverlay) {
@@ -129,40 +133,119 @@ async function updateFlur() {
 map.on("moveend", updateFlur);
 updateFlur();
 
-let marker = null;
-function setPos(latlng) {
-  if (marker) marker.setLatLng(latlng); else marker = L.circleMarker(latlng, { radius: 7, color: "#0b6b4a", fillOpacity: .9 }).addTo(map);
+// --- Standort (unabhängig von der Suche): Punkt immer sichtbar, Flurstück am Standort blau markiert ---
+const BLUE = "#1a73e8", ORANGE = "#d9480f";
+let tapMarker = null;
+function setTap(latlng) {
+  if (tapMarker) tapMarker.setLatLng(latlng);
+  else tapMarker = L.circleMarker(latlng, { radius: 6, color: "#555", weight: 2, fillOpacity: 0, interactive: false }).addTo(map);
 }
 
-function locate() {
-  if (!navigator.geolocation) { info("Standort wird von diesem Browser nicht unterstützt."); return; }
-  info("Suche Standort …");
-  navigator.geolocation.getCurrentPosition(p => {
-    const ll = L.latLng(p.coords.latitude, p.coords.longitude);
-    map.setView(ll, 19); setPos(ll); query(ll);
-  }, e => info("Standort nicht verfügbar: " + e.message + ". Die Seite braucht https und die Standortfreigabe. Du kannst die Karte trotzdem verschieben und antippen."), { enableHighAccuracy: true, timeout: 15000 });
+function inRing(pt, ring) {   // pt = [Breite, Länge], Ring aus [Breite, Länge]
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [yi, xi] = ring[i], [yj, xj] = ring[j];
+    if ((yi > pt[0]) !== (yj > pt[0]) && pt[1] < (xj - xi) * (pt[0] - yi) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
 }
-document.getElementById("loc").onclick = locate;
+function inPolys(ll, polys) {
+  const pt = [ll.lat, ll.lng];
+  return polys.some(rings => inRing(pt, rings[0]) && !rings.slice(1).some(h => inRing(pt, h)));
+}
 
-map.on("click", e => { setPos(e.latlng); query(e.latlng); });
+function drawPolys(polys, color) {
+  const p0 = polys[0] && polys[0][0] && polys[0][0][0];
+  if (!(p0 && p0[0] > 45 && p0[0] < 56)) return null;   // Koordinaten unplausibel (Breitengrad in Deutschland)
+  return L.featureGroup(polys.map(r => L.polygon(r, { color, weight: 3, fillOpacity: .15, interactive: false }))).addTo(map);
+}
 
-function info(html) { document.getElementById("info").innerHTML = html; }
+let locMarker = null, locAcc = null, locHl = null, locPolys = null, locLL = null;
+let locBusy = false, locRetryAt = 0, firstFix = true;
+
+function onPos(p) {
+  const ll = L.latLng(p.coords.latitude, p.coords.longitude);
+  locLL = ll;
+  if (!locMarker) {
+    locAcc = L.circle(ll, { radius: p.coords.accuracy, color: BLUE, weight: 1, fillOpacity: .1, interactive: false }).addTo(map);
+    locMarker = L.circleMarker(ll, { radius: 7, color: "#fff", weight: 2, fillColor: BLUE, fillOpacity: 1, interactive: false }).addTo(map);
+  } else {
+    locMarker.setLatLng(ll); locAcc.setLatLng(ll); locAcc.setRadius(p.coords.accuracy);
+  }
+  if (firstFix) { firstFix = false; map.setView(ll, 19); }
+  updateLocParcel(ll);
+}
+
+// Flurstück am Standort: nur neu abfragen, wenn der Standort das bisherige Flurstück verlässt
+async function updateLocParcel(ll) {
+  if (locBusy || Date.now() < locRetryAt) return;
+  if (locPolys && locPolys.length && inPolys(ll, locPolys)) return;
+  locBusy = true;
+  try {
+    const res = await parcelAt(ll);
+    if (locHl) { map.removeLayer(locHl); locHl = null; }
+    if (res) {
+      locPolys = res.polys;
+      locHl = drawPolys(res.polys, BLUE);
+      if (!locHl) locRetryAt = Date.now() + 15000;   // keine Geometrie: später erneut versuchen
+      infoLoc("<b>Standort:</b> Flurstück " + esc(res.label || res.ref || "?") + " · " + res.area.toLocaleString("de-DE") + " m²");
+    } else {
+      locPolys = null; locRetryAt = Date.now() + 15000;
+      infoLoc("<b>Standort:</b> kein Flurstück gefunden<br><small>" + esc(diag.join(" | ")) + "</small>");
+    }
+  } finally {
+    locBusy = false;
+    if (locMarker) locMarker.bringToFront();
+  }
+}
+
+async function parcelAt(ll) {
+  diag = [];
+  const pt = `<fes:Intersects><fes:ValueReference>cp:geometry</fes:ValueReference><gml:Point srsName="urn:ogc:def:crs:EPSG::4326"><gml:pos>${ll.lat} ${ll.lng}</gml:pos></gml:Point></fes:Intersects>`;
+  const list = await wfsQuery("P", fWrap(pt));
+  if (list.length) return list[0];
+  try {   // Ausweg: Kennzeichen über den Kartendienst, dann wie bei der Suche abrufen
+    const txt = await fetchFI(ll);
+    const id = parseId(txt);
+    if (id) {
+      const full = await findParcel(id.gem, id.flur, [null, String(Number(id.zaehler)), id.nenner], ll);
+      if (full) return full;
+      const a = txt.match(/areaValue\s*([\d.,]+)\s*m/i);
+      if (a) return { area: Number(a[1].replace(",", ".")), polys: [], ref: "", label: String(Number(id.zaehler)) + (id.nenner ? "/" + id.nenner : "") };
+    } else {
+      diag.push("WMS: kein Flurstück am Standort");
+    }
+  } catch (e) { diag.push("WMS: " + e.message); }
+  return null;
+}
+
+function startTracking() {
+  if (!navigator.geolocation) { infoLoc("<b>Standort:</b> wird von diesem Browser nicht unterstützt."); return; }
+  navigator.geolocation.watchPosition(onPos,
+    e => infoLoc("<b>Standort:</b> nicht verfügbar (" + esc(e.message) + "). Die Seite braucht https und die Standortfreigabe."),
+    { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 });
+}
+document.getElementById("loc").onclick = () => {
+  if (locLL) map.setView(locLL, 19); else infoLoc("<b>Standort:</b> noch kein Standort empfangen.");
+};
+
+map.on("click", e => { setTap(e.latlng); query(e.latlng); });
+
+function info(html) { document.getElementById("isea").innerHTML = html; }
+function infoLoc(html) { document.getElementById("iloc").innerHTML = html; }
 
 const sg = document.getElementById("sg");
 let hl = null;   // hervorgehobenes Flurstück aus der Suche
 
-// WMS-Abfrage am Punkt, liefert den Antworttext (Tabelle als reiner Text)
+// WMS-Abfrage am Punkt (festes Fenster von 101 x 101 Pixeln, unabhängig von Kartenausschnitt und Zoom)
 async function fetchFI(latlng) {
-  const size = map.getSize();
-  const b = map.getBounds();
-  const sw = L.CRS.EPSG3857.project(b.getSouthWest());
-  const ne = L.CRS.EPSG3857.project(b.getNorthEast());
-  const pt = map.latLngToContainerPoint(latlng);
+  const c = L.CRS.EPSG3857.project(latlng);
+  const h = 50 * 0.3;   // 0,3 m pro Pixel
   const p = new URLSearchParams({
     SERVICE: "WMS", VERSION: "1.3.0", REQUEST: "GetFeatureInfo",
     LAYERS: WMS_LAYER, QUERY_LAYERS: WMS_LAYER, STYLES: "",
-    CRS: "EPSG:3857", BBOX: [sw.x, sw.y, ne.x, ne.y].join(","),
-    WIDTH: size.x, HEIGHT: size.y, I: Math.round(pt.x), J: Math.round(pt.y),
+    CRS: "EPSG:3857", BBOX: [c.x - h, c.y - h, c.x + h, c.y + h].join(","),
+    WIDTH: 101, HEIGHT: 101, I: 50, J: 50,
     INFO_FORMAT: "text/html", FEATURE_COUNT: 1
   });
   const r = await fetch(WMS_URL + "?" + p);
@@ -253,7 +336,7 @@ function parseParcel(el) {
 }
 
 // Sucht das Flurstück in drei Stufen: exaktes Kennzeichen, Kennzeichen-Anfang, Nummer + Umkreis
-async function findParcel(gem, flur, m) {
+async function findParcel(gem, flur, m, near = map.getCenter()) {
   const ref14 = LAND + gem + pad(flur, 3) + pad(m[1], 5);
   const nenner = m[2] ? pad(m[2], 4) : "";
   const passt = f => f.ref.startsWith(ref14) && (nenner ? f.ref.slice(14, 18) === nenner : /^_*$/.test(f.ref.slice(14)));
@@ -261,7 +344,7 @@ async function findParcel(gem, flur, m) {
   let hit = list.find(passt); if (hit) return hit;
   list = await wfsQuery("B", fWrap(fLike("cp:nationalCadastralReference", ref14 + "*")));
   hit = list.find(passt); if (hit) return hit;
-  const c = map.getCenter(), d = 0.04;
+  const c = near, d = 0.04;
   const box = `<fes:BBOX><fes:ValueReference>cp:geometry</fes:ValueReference><gml:Envelope srsName="urn:ogc:def:crs:EPSG::4326"><gml:lowerCorner>${c.lat - d} ${c.lng - d}</gml:lowerCorner><gml:upperCorner>${c.lat + d} ${c.lng + d}</gml:upperCorner></gml:Envelope></fes:BBOX>`;
   const label = String(Number(m[1])) + (m[2] ? "/" + Number(m[2]) : "");
   list = await wfsQuery("C", fWrap(`<fes:And>${fEq("cp:label", label)}${box}</fes:And>`));
@@ -271,12 +354,9 @@ async function findParcel(gem, flur, m) {
 }
 
 function showResult(res) {
-  if (hl) map.removeLayer(hl);
-  const p0 = res.polys[0] && res.polys[0][0] && res.polys[0][0][0];
-  if (p0 && p0[0] > 45 && p0[0] < 56) {   // Koordinaten plausibel (Breitengrad in Deutschland)
-    hl = L.featureGroup(res.polys.map(r => L.polygon(r, { color: "#0b6b4a", weight: 3, fillOpacity: .15, interactive: false }))).addTo(map);
-    map.fitBounds(hl.getBounds(), { maxZoom: 19, padding: [30, 30] });
-  }
+  if (hl) { map.removeLayer(hl); hl = null; }
+  hl = drawPolys(res.polys, ORANGE);
+  if (hl) map.fitBounds(hl.getBounds(), { maxZoom: 19, padding: [30, 30] });
   info("<strong style='font-size:1.4rem'>" + res.area.toLocaleString("de-DE") + " m²</strong>");
 }
 
@@ -314,7 +394,7 @@ async function search() {
 document.getElementById("go").onclick = search;
 document.getElementById("sz").addEventListener("keydown", e => { if (e.key === "Enter") search(); });
 
-locate();   // Beim Laden direkt am eigenen Standort starten
+startTracking();   // Standort laufend anzeigen
 </script>
 </body>
 </html>
