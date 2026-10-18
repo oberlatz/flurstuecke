@@ -198,6 +198,8 @@ async function query(latlng) {
 const WFS_URL = "https://inspire.brandenburg.de/services/cp_alkis_wfs";   // bitte gegen GetCapabilities prüfen
 const LAND = "12";                                                       // Brandenburg
 const pad = (s, n) => String(s).padStart(n, "0");
+const esc = s => String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+let diag = [];   // Rückmeldungen des Dienstes, werden bei „Nicht gefunden“ angezeigt
 
 async function wfsById(id) {
   const versuche = [
@@ -208,10 +210,11 @@ async function wfsById(id) {
     const p = new URLSearchParams({ SERVICE: "WFS", VERSION: "2.0.0", REQUEST: "GetFeature", SRSNAME: "urn:ogc:def:crs:EPSG::4326", ...v });
     try {
       const r = await fetch(WFS_URL + "?" + p);
-      if (!r.ok) continue;
-      const xml = new DOMParser().parseFromString(await r.text(), "application/xml");
+      if (!r.ok) { diag.push("HTTP " + r.status); continue; }
+      const txt = await r.text();
+      const xml = new DOMParser().parseFromString(txt, "application/xml");
       const a = xml.getElementsByTagNameNS("*", "areaValue")[0];
-      if (!a) continue;
+      if (!a) { diag.push(txt.replace(/\s+/g, " ").slice(0, 200)); continue; }
       const polys = [];
       for (const pg of xml.getElementsByTagNameNS("*", "Polygon")) {
         const rings = [];
@@ -224,7 +227,7 @@ async function wfsById(id) {
         if (rings.length) polys.push(rings);
       }
       return { area: Number(a.textContent), polys };
-    } catch (e) { /* nächster Versuch */ }
+    } catch (e) { diag.push(e.message); }
   }
   return null;
 }
@@ -244,7 +247,7 @@ async function search() {
   const nr = document.getElementById("sz").value.trim().replace(/\s+/g, "");
   const m = nr.match(/^(\d{1,5})(?:[\/-](\d{1,4}))?$/);
   if (!/^\d{1,3}$/.test(flur) || !m) { info("Bitte Flur (Zahl) und Flurstück (z. B. 289 oder 289/2) eingeben."); return; }
-  info("Suche …");
+  diag = []; info("Suche …");
   try {
     let gem = sg.value.trim();
     if (!/^\d{4}$/.test(gem)) {   // Gemarkung aus der Kartenmitte ermitteln
@@ -264,7 +267,7 @@ async function search() {
       res = await wfsById(gmlId);
       if (res) { try { localStorage.setItem(key, JSON.stringify({ t: Date.now(), res })); } catch (e) {} }
     }
-    if (!res) { info("Nicht gefunden: Gemarkung " + gem + ", Flur " + flur + ", Flurstück " + nr + ". Prüfe die Eingaben, oder der Dienst ist nicht erreichbar."); return; }
+    if (!res) { info("Nicht gefunden: " + esc(gmlId) + "<br><small>" + esc(diag.join(" | ") || "keine Rückmeldung") + "</small>"); return; }
     showResult(res);
   } catch (err) {
     info("Suche fehlgeschlagen (" + err.message + ").");
