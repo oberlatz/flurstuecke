@@ -22,8 +22,10 @@
   .cr { text-align:right; }
   .crb { padding:1px 8px; font-size:.8rem; opacity:.75; background:var(--bg); color:var(--acc); border-radius:6px; }
   .crt { background:var(--bg); color:var(--fg); font-size:.75rem; padding:4px 8px; border-radius:6px; margin-bottom:4px; }
-  #iloc { border-left:4px solid #1a73e8; padding-left:8px; margin-bottom:6px; }
-  #isea { border-left:4px solid #d9480f; padding-left:8px; }
+  #info { display:flex; flex-wrap:wrap; gap:6px 14px; }
+  #iloc, #isea { flex:1 1 160px; min-width:0; }
+  #iloc::before, #isea::before { content:""; display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px; background:#1a73e8; }
+  #isea::before { background:#d9480f; }
   #info table { border-collapse:collapse; }
   #info td, #info th { border-bottom:1px solid var(--line); padding:2px 8px 2px 0; text-align:left; }
 </style>
@@ -40,7 +42,7 @@
   <button id="go">Suchen</button>
 </div>
 <div id="map"></div>
-<div id="info"><div id="iloc"><b>Standort:</b> wird ermittelt …</div><div id="isea">Karte antippen oder oben suchen.</div></div>
+<div id="info"><div id="iloc"><b>Standort:</b> wird ermittelt …</div><div id="isea"><b>Auswahl:</b> Karte antippen oder suchen.</div></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
@@ -274,7 +276,7 @@ async function query(latlng) {
     document.getElementById("sf").value = String(Number(id.flur));
     document.getElementById("sz").value = String(Number(id.zaehler)) + (id.nenner ? "/" + id.nenner : "");
     const a = txt.match(/areaValue\s*([\d.,]+)\s*m/i);
-    if (a) info("<strong style='font-size:1.4rem'>" + Number(a[1].replace(",", ".")).toLocaleString("de-DE") + " m²</strong>");
+    if (a) info("<b>Auswahl:</b> Flurstück " + esc(document.getElementById("sz").value) + " · " + Number(a[1].replace(",", ".")).toLocaleString("de-DE") + " m²");
     await search({ fit: false, near: latlng, quiet: true });   // Umriss dazu, Karte bleibt stehen
   } catch (err) {
     info("Abfrage fehlgeschlagen (" + err.message + "). Mögliche Ursache: Dienst erlaubt keine Browser-Abfragen (CORS) oder der Layername ist anders.");
@@ -353,7 +355,7 @@ function showResult(res, fit = true) {
   if (hl) { map.removeLayer(hl); hl = null; }
   hl = drawPolys(res.polys, ORANGE);
   if (hl && fit) map.fitBounds(hl.getBounds(), { maxZoom: 19, padding: [30, 30] });
-  info("<strong style='font-size:1.4rem'>" + res.area.toLocaleString("de-DE") + " m²</strong>");
+  info("<b>Auswahl:</b> Flurstück " + esc(res.label || res.ref || document.getElementById("sz").value || "?") + " · " + res.area.toLocaleString("de-DE") + " m²");
 }
 
 async function search(opts = {}) {
