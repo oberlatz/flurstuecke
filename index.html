@@ -6,44 +6,55 @@
 <title>Flurstücke Brandenburg</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <style>
-  :root { --bg:#f6f7f4; --fg:#1d2a22; --acc:#0b6b4a; --line:#cfd6cf; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#16201a; --fg:#e8eee9; --acc:#5fd3a1; --line:#34443a; } }
-  html, body { height:100%; margin:0; background:var(--bg); color:var(--fg); font:16px/1.4 system-ui, sans-serif; }
-  body { display:flex; flex-direction:column; }
-  header { display:flex; gap:8px; align-items:center; padding:10px 12px; padding-top:calc(10px + env(safe-area-inset-top, 0px)); border-bottom:1px solid var(--line); }
-  header h1 { font-size:1rem; margin:0; flex:1; font-weight:650; }
-  button { font:inherit; padding:8px 12px; border-radius:8px; border:1px solid var(--acc); background:var(--acc); color:var(--bg); }
-  button.alt { background:transparent; color:var(--acc); }
-  #map { flex:1; min-height:0; }
-  #info { padding:10px 12px; padding-bottom:calc(10px + env(safe-area-inset-bottom, 0px)); border-top:1px solid var(--line); max-height:30vh; overflow:auto; font-size:.9rem; }
-  #search { display:flex; gap:6px; padding:8px 12px; border-bottom:1px solid var(--line); }
-  #search input { min-width:0; padding:8px; font:inherit; color:var(--fg); background:var(--bg); border:1px solid var(--line); border-radius:8px; }
-  #sg { width:5.6em; } #sf { width:3.6em; } #sz { flex:1; }
-  .cr { text-align:right; }
-  .crb { padding:1px 8px; font-size:.8rem; opacity:.75; background:var(--bg); color:var(--acc); border-radius:6px; }
-  .crt { background:var(--bg); color:var(--fg); font-size:.75rem; padding:4px 8px; border-radius:6px; margin-bottom:4px; }
-  #info { display:flex; flex-wrap:wrap; gap:6px 14px; }
-  #iloc, #isea { flex:1 1 160px; min-width:0; }
+  :root { --bg:#f6f7f4; --fg:#1d2a22; --acc:#0b6b4a; --line:#cfd6cf; --glass:rgba(246,247,244,.93); }
+  @media (prefers-color-scheme: dark) { :root { --bg:#16201a; --fg:#e8eee9; --acc:#5fd3a1; --line:#34443a; --glass:rgba(22,32,26,.93); } }
+  html, body { height:100%; margin:0; overflow:hidden; background:var(--bg); color:var(--fg); font:16px/1.4 system-ui, sans-serif; }
+  #map { position:fixed; inset:0; }
+  .leaflet-top { top:env(safe-area-inset-top, 0px); }
+  button { font:inherit; padding:8px 10px; border-radius:8px; border:1px solid var(--acc); background:var(--acc); color:var(--bg); }
+
+  /* Oben: Suchkapsel (zugeklappt nur ein Lupen-Knopf) */
+  #top { position:fixed; z-index:1100; left:8px; right:8px; top:calc(8px + env(safe-area-inset-top, 0px)); display:flex; pointer-events:none; }
+  #search { pointer-events:auto; display:flex; align-items:center; gap:6px; background:var(--glass); border:1px solid var(--line); border-radius:26px; padding:4px; box-shadow:0 2px 8px rgba(0,0,0,.25); }
+  #search.open { flex:1; }
+  #sbtn { width:40px; height:40px; padding:0; border-radius:50%; display:grid; place-items:center; flex:none; }
+  #sfields { display:none; flex:1; gap:6px; min-width:0; }
+  #search.open #sfields { display:flex; }
+  #sfields input { min-width:0; padding:8px; font:inherit; color:var(--fg); background:var(--bg); border:1px solid var(--line); border-radius:8px; }
+  #sg { width:5.2em; } #sf { width:3.4em; } #sz { flex:1; }
+
+  /* Unten: Standort-Knopf und eine schmale Infokarte */
+  #bottom { position:fixed; z-index:1100; left:8px; right:8px; bottom:calc(8px + env(safe-area-inset-bottom, 0px)); display:flex; flex-direction:column; align-items:flex-end; gap:8px; pointer-events:none; }
+  #loc { pointer-events:auto; width:48px; height:48px; padding:0; border-radius:50%; display:grid; place-items:center; box-shadow:0 2px 8px rgba(0,0,0,.3); }
+  #info { pointer-events:auto; align-self:stretch; box-sizing:border-box; display:flex; flex-wrap:wrap; gap:4px 14px; max-height:40vh; overflow:auto; padding:8px 12px; font-size:.85rem; background:var(--glass); border:1px solid var(--line); border-radius:14px; box-shadow:0 2px 8px rgba(0,0,0,.25); }
+  #iloc, #isea { flex:1 1 140px; min-width:0; max-height:2.8em; overflow:hidden; }
+  #info.open #iloc, #info.open #isea { max-height:none; }
   #iloc::before, #isea::before { content:""; display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px; background:#1a73e8; }
   #isea::before { background:#d9480f; }
-  #info table { border-collapse:collapse; }
-  #info td, #info th { border-bottom:1px solid var(--line); padding:2px 8px 2px 0; text-align:left; }
+
+  /* Quellenangabe: kleiner ©-Knopf oben rechts */
+  .cr { text-align:right; }
+  .crb { padding:1px 8px; font-size:.8rem; opacity:.75; background:var(--bg); color:var(--acc); border-radius:6px; }
+  .crt { background:var(--bg); color:var(--fg); font-size:.75rem; padding:4px 8px; border-radius:6px; margin-top:4px; }
 </style>
 </head>
 <body>
-<header>
-  <h1>Flurstücke Brandenburg</h1>
-  <button id="loc">Mein Standort</button>
-</header>
-<div id="search">
-  <input id="sg" inputmode="numeric" maxlength="4" placeholder="Gemarkung" aria-label="Gemarkungsnummer">
-  <input id="sf" inputmode="numeric" maxlength="3" placeholder="Flur" aria-label="Flur">
-  <input id="sz" placeholder="Flurstück" aria-label="Flurstück, z. B. 289 oder 289/2">
-  <button id="go">Suchen</button>
-</div>
 <div id="map"></div>
-<div id="info"><div id="iloc"><b>Standort:</b> wird ermittelt …</div><div id="isea"><b>Auswahl:</b> Karte antippen oder suchen.</div></div>
-
+<div id="top">
+  <div id="search">
+    <button id="sbtn" aria-label="Suche öffnen oder schließen"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg></button>
+    <div id="sfields">
+      <input id="sg" inputmode="numeric" maxlength="4" placeholder="Gemarkung" aria-label="Gemarkungsnummer">
+      <input id="sf" inputmode="numeric" maxlength="3" placeholder="Flur" aria-label="Flur">
+      <input id="sz" placeholder="Flurstück" aria-label="Flurstück, z. B. 289 oder 289/2">
+      <button id="go">Suchen</button>
+    </div>
+  </div>
+</div>
+<div id="bottom">
+  <button id="loc" aria-label="Mein Standort"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></button>
+  <div id="info"><div id="iloc"><b>Standort:</b> wird ermittelt …</div><div id="isea"><b>Auswahl:</b> Karte antippen oder suchen.</div></div>
+</div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
 // --- Konfiguration (bei Bedarf anhand von GetCapabilities anpassen) ---
@@ -51,7 +62,7 @@ const WMS_URL   = "https://inspire.brandenburg.de/services/cp_alkis_wms";
 const WMS_LAYER = "CP.CadastralParcel";   // INSPIRE-Standardname, bitte gegen GetCapabilities prüfen
 const START     = [52.35, 12.85];          // Raum Potsdam/Beetzsee
 
-const map = L.map("map", { attributionControl: false }).setView(START, 17);
+const map = L.map("map", { attributionControl: false, zoomControl: false }).setView(START, 17);
 const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
   maxZoom: 19, attribution: "&copy; OpenStreetMap-Mitwirkende"
 }).addTo(map);
@@ -60,10 +71,10 @@ map.getPane("flur").style.zIndex = 250;
 
 // Ein einziges WMS-Bild pro Kartenausschnitt statt Kacheln:
 // Der Dienst beschriftet jede Kachel einzeln, dadurch erschienen Flurstücksnummern mehrfach.
-const cr = L.control({ position: "bottomright" });
+const cr = L.control({ position: "topright" });
 cr.onAdd = () => {
   const d = L.DomUtil.create("div", "cr");
-  d.innerHTML = '<div class="crt" hidden>&copy; OpenStreetMap-Mitwirkende<br>&copy; GeoBasis-DE/LGB, dl-de/by-2-0<br><a href="#" class="clr">Karten-Cache leeren</a></div><button class="crb" aria-label="Quellen">&copy;</button>';
+  d.innerHTML = '\2\1';
   L.DomEvent.disableClickPropagation(d);
   d.querySelector(".clr").onclick = e => {
     e.preventDefault();
@@ -231,7 +242,7 @@ document.getElementById("loc").onclick = () => {
   if (locLL) map.setView(locLL, 19); else infoLoc("<b>Standort:</b> noch kein Standort empfangen.");
 };
 
-map.on("click", e => { setTap(e.latlng); query(e.latlng); });
+map.on("click", e => { closeSearch(); setTap(e.latlng); query(e.latlng); });
 
 function info(html) { document.getElementById("isea").innerHTML = html; }
 function infoLoc(html) { document.getElementById("iloc").innerHTML = html; }
@@ -387,12 +398,21 @@ async function search(opts = {}) {
     }
     if (!res) { if (!opts.quiet) info("Nicht gefunden: " + esc(gmlId) + "<br><small>" + esc(diag.join(" | ") || "keine Rückmeldung") + "</small>"); return; }
     showResult(res, opts.fit !== false);
+    return true;
   } catch (err) {
     if (!opts.quiet) info("Suche fehlgeschlagen (" + err.message + ").");
   }
 }
-document.getElementById("go").onclick = search;
-document.getElementById("sz").addEventListener("keydown", e => { if (e.key === "Enter") search(); });
+const searchBox = document.getElementById("search");
+const closeSearch = () => searchBox.classList.remove("open");
+async function doSearch() { if (await search()) closeSearch(); }
+document.getElementById("go").onclick = doSearch;
+document.getElementById("sbtn").onclick = () => {
+  searchBox.classList.toggle("open");
+  if (searchBox.classList.contains("open")) document.getElementById("sf").focus();
+};
+document.getElementById("info").onclick = e => e.currentTarget.classList.toggle("open");
+document.getElementById("sz").addEventListener("keydown", e => { if (e.key === "Enter") doSearch(); });
 
 startTracking();   // Standort laufend anzeigen
 </script>
