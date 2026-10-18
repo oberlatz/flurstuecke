@@ -74,7 +74,7 @@ map.getPane("flur").style.zIndex = 250;
 const cr = L.control({ position: "topright" });
 cr.onAdd = () => {
   const d = L.DomUtil.create("div", "cr");
-  d.innerHTML = '\2\1';
+  d.innerHTML = '<button class="crb" aria-label="Quellen">&copy;</button><div class="crt" hidden>&copy; OpenStreetMap-Mitwirkende<br>&copy; GeoBasis-DE/LGB, dl-de/by-2-0<br><a href="#" class="clr">Karten-Cache leeren</a></div>';
   L.DomEvent.disableClickPropagation(d);
   d.querySelector(".clr").onclick = e => {
     e.preventDefault();
