@@ -79,8 +79,15 @@ async function query(latlng) {
   try {
     const r = await fetch(WMS_URL + "?" + p);
     if (!r.ok) throw new Error("HTTP " + r.status);
-    const t = (await r.text()).trim();
-    info(t && t.length > 20 ? t : "Kein Flurstück an dieser Stelle gefunden.");
+    const html = await r.text();
+    const txt = new DOMParser().parseFromString(html, "text/html").body.textContent.replace(/\s+/g, " ");
+    const m = txt.match(/areaValue\s*([\d.,]+)\s*m/i);
+    if (m) {
+      const n = Number(m[1].replace(",", "."));
+      info("<strong style='font-size:1.4rem'>" + n.toLocaleString("de-DE") + " m²</strong>");
+    } else {
+      info("Kein Flurstück an dieser Stelle gefunden.");
+    }
   } catch (err) {
     info("Abfrage fehlgeschlagen (" + err.message + "). Mögliche Ursache: Dienst erlaubt keine Browser-Abfragen (CORS) oder der Layername ist anders. Die Grenzen auf der Karte sind trotzdem sichtbar.");
   }
