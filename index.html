@@ -26,7 +26,7 @@
   #sfields { display:none; flex:1; gap:6px; min-width:0; }
   #search.open #sfields { display:flex; }
   #sfields input { box-sizing:border-box; min-width:0; padding:8px; font:inherit; font-size:.95rem; color:var(--fg); background:var(--bg); border:1px solid var(--line); border-radius:8px; }
-  #sg { width:84px; flex:none; } #sf { width:56px; flex:none; } #sz { flex:1; width:0; }
+  #sg { width:92px; flex:none; } #sz { flex:1; width:0; }
 
   /* Unten: Standort-Knopf und eine schmale Infokarte */
   #bottom { position:fixed; z-index:1100; left:8px; right:8px; bottom:calc(8px + env(safe-area-inset-bottom, 0px)); display:flex; flex-direction:column; align-items:flex-end; gap:8px; pointer-events:none; }
@@ -36,6 +36,12 @@
   #info.open #iloc, #info.open #isea { max-height:none; }
   #iloc::before, #isea::before { content:""; display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px; background:#1a73e8; }
   #isea::before { background:#d9480f; }
+
+  /* Trefferliste in der Infokarte */
+  #isea.wide { flex-basis:100%; max-height:none; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+  .chip { padding:4px 10px; font-size:.8rem; border-radius:14px; background:transparent; color:var(--acc); }
+  .chip.sel { background:var(--acc); color:var(--bg); }
 
   /* Quellenangabe: kleiner ©-Knopf oben rechts */
   .cr { text-align:right; }
@@ -49,9 +55,8 @@
   <div id="search">
     <button id="sbtn" aria-label="Suche öffnen oder schließen"><span class="i-open"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg></span><span class="i-close"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></span></button>
     <div id="sfields">
-      <input id="sg" inputmode="numeric" maxlength="4" placeholder="Gemarkung" aria-label="Gemarkungsnummer">
-      <input id="sf" inputmode="numeric" maxlength="3" placeholder="Flur" aria-label="Flur">
-      <input id="sz" placeholder="Flurstück" aria-label="Flurstück, z. B. 289 oder 289/2">
+      <input id="sz" placeholder="z. B. 3 289 oder 289/2" aria-label="Flur und Flurstück, z. B. 3 289 oder 289/2" enterkeyhint="search" autocomplete="off">
+      <input id="sg" inputmode="numeric" maxlength="4" placeholder="Gemarkung" aria-label="Gemarkungsnummer (optional)" autocomplete="off">
       <button id="go" aria-label="Suchen"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg></button>
     </div>
   </div>
@@ -249,7 +254,7 @@ document.getElementById("loc").onclick = () => {
 
 map.on("click", e => { closeSearch(); setTap(e.latlng); query(e.latlng); });
 
-function info(html) { document.getElementById("isea").innerHTML = html; }
+function info(html, wide) { const e = document.getElementById("isea"); e.innerHTML = html; e.classList.toggle("wide", !!wide); }
 function infoLoc(html) { document.getElementById("iloc").innerHTML = html; }
 
 const sg = document.getElementById("sg");
@@ -280,20 +285,21 @@ function parseId(txt) {
   return { gem: m[2], flur: m[3], zaehler: m[4], nenner };
 }
 
-// Antippen der Karte: Flurstück erkennen, Suchfelder füllen und dieselbe Suche ausführen
+// Antippen der Karte: Flurstück erkennen, Suchfeld füllen und dieselbe Suche ausführen
 async function query(latlng) {
+  if (hl) { map.removeLayer(hl); hl = null; }
   setTap(latlng);
   info("Frage Flurstück ab …");
   try {
     const txt = await fetchFI(latlng);
     const id = parseId(txt);
     if (!id) { info("Kein Flurstück an dieser Stelle gefunden."); return; }
-    sg.value = id.gem;
-    document.getElementById("sf").value = String(Number(id.flur));
-    document.getElementById("sz").value = String(Number(id.zaehler)) + (id.nenner ? "/" + id.nenner : "");
+    const spec = { flur: Number(id.flur), z: Number(id.zaehler), n: id.nenner ? Number(id.nenner) : 0 };
+    const nr = spec.z + (spec.n ? "/" + spec.n : "");
+    document.getElementById("sz").value = spec.flur + " " + nr;
     const a = txt.match(/areaValue\s*([\d.,]+)\s*m/i);
-    if (a) info("<b>Auswahl:</b> Flurstück " + esc(document.getElementById("sz").value) + " · " + Number(a[1].replace(",", ".")).toLocaleString("de-DE") + " m²");
-    await search({ fit: false, near: latlng, quiet: true });   // Umriss dazu, Karte bleibt stehen
+    if (a) info("<b>Auswahl:</b> Flurstück " + esc(nr) + " · " + Number(a[1].replace(",", ".")).toLocaleString("de-DE") + " m²");
+    await search({ spec, gem: id.gem, fit: false, near: latlng, quiet: true });   // Umriss dazu, Karte bleibt stehen
   } catch (err) {
     info("Abfrage fehlgeschlagen (" + err.message + "). Mögliche Ursache: Dienst erlaubt keine Browser-Abfragen (CORS) oder der Layername ist anders.");
   }
@@ -312,10 +318,10 @@ const fLike = (prop, val) => `<fes:PropertyIsLike wildCard="*" singleChar="?" es
 const fWrap = inner => `<fes:Filter ${FES_NS}>${inner}</fes:Filter>`;
 
 // Eine WFS-Abfrage mit Filter; liefert die gefundenen Flurstücke als Liste
-async function wfsQuery(name, filter) {
+async function wfsQuery(name, filter, count = 20) {
   const p = new URLSearchParams({
     SERVICE: "WFS", VERSION: "2.0.0", REQUEST: "GetFeature", TYPENAMES: "cp:CadastralParcel",
-    COUNT: "20", SRSNAME: "urn:ogc:def:crs:EPSG::4326", FILTER: filter
+    COUNT: String(count), SRSNAME: "urn:ogc:def:crs:EPSG::4326", FILTER: filter
   });
   try {
     const r = await fetch(WFS_URL + "?" + p);
@@ -367,43 +373,119 @@ async function findParcel(gem, flur, m, near = map.getCenter()) {
   return hit || null;
 }
 
-function showResult(res, fit = true) {
+// --- Eingabe verstehen: "289", "289/2", "3 289", "Flur 3 Flurstück 289/2" ---
+function parseInput(t) {
+  const s = String(t).toLowerCase().replace(/flurst(?:ü|u)cke?|flst\.?|flur|fl\./g, " ").replace(/[;,]/g, " ").trim();
+  const tok = s.split(/\s+/).filter(Boolean);
+  const nr = x => { const m = x.match(/^(\d{1,5})(?:[\/-](\d{1,4}))?$/); return m ? { z: Number(m[1]), n: m[2] ? Number(m[2]) : 0 } : null; };
+  if (tok.length === 1) { const a = nr(tok[0]); return a && a.z > 0 ? { flur: null, z: a.z, n: a.n } : null; }
+  if (tok.length === 2 && /^\d{1,3}$/.test(tok[0])) { const a = nr(tok[1]); return a && a.z > 0 ? { flur: Number(tok[0]), z: a.z, n: a.n } : null; }
+  return null;
+}
+
+// --- Umkreissuche: Flurstücksnummer in der Nähe, Gemarkung und Flur optional ---
+const RADIUS_KM = 5, MAX_KM = 15;
+const searchCenter = () => (locLL && map.getBounds().contains(locLL)) ? locLL : map.getCenter();
+
+function parcelCenter(f) {
+  const ring = f.polys[0] && f.polys[0][0];
+  if (!ring || !ring.length) return null;
+  let a = 0, b = 0;
+  for (const [y, x] of ring) { a += y; b += x; }
+  return L.latLng(a / ring.length, b / ring.length);
+}
+
+async function radiusSearch(spec, gem, c, km) {
+  const dLat = km / 111.32, dLng = km / (111.32 * Math.cos(c.lat * Math.PI / 180));
+  const box = `<fes:BBOX><fes:ValueReference>cp:geometry</fes:ValueReference><gml:Envelope srsName="urn:ogc:def:crs:EPSG::4326"><gml:lowerCorner>${c.lat - dLat} ${c.lng - dLng}</gml:lowerCorner><gml:upperCorner>${c.lat + dLat} ${c.lng + dLng}</gml:upperCorner></gml:Envelope></fes:BBOX>`;
+  const label = spec.z + (spec.n ? "/" + spec.n : "");
+  const list = await wfsQuery("U" + km, fWrap(`<fes:And>${fEq("cp:label", label)}${box}</fes:And>`), 60);
+  return list
+    .filter(f => !/^\d{14}/.test(f.ref) || ((!gem || f.ref.slice(2, 6) === gem) && (spec.flur == null || f.ref.slice(6, 9) === pad(spec.flur, 3))))
+    .map(f => { const p = parcelCenter(f); return { ...f, dist: p ? c.distanceTo(p) : Infinity }; })
+    .sort((a, b) => a.dist - b.dist);
+}
+
+const fmtDist = m => !isFinite(m) ? "" : m < 1000 ? Math.round(m / 10) * 10 + " m" : (m / 1000).toFixed(1).replace(".", ",") + " km";
+function chipText(f, multiGem) {
+  const ok = /^\d{14}/.test(f.ref);
+  const parts = [];
+  if (ok) parts.push("Flur " + Number(f.ref.slice(6, 9)));
+  parts.push(f.label || "?");
+  parts.push(f.area.toLocaleString("de-DE") + " m²");
+  if (multiGem && ok) parts.push("Gem. " + f.ref.slice(2, 6));
+  const d = fmtDist(f.dist);
+  if (d) parts.push(d);
+  return parts.join(" · ");
+}
+
+// Mehrere Treffer: kurze Auswahl in der Infokarte
+function showChoices(list, sel) {
+  const multiGem = new Set(list.map(f => f.ref.slice(2, 6))).size > 1;
+  const chips = list.slice(0, 12).map((f, i) => `<button class="chip${i === sel ? " sel" : ""}" data-i="${i}">${esc(chipText(f, multiGem))}</button>`).join("");
+  const head = sel < 0
+    ? "<b>Auswahl:</b> " + list.length + " Treffer, bitte wählen"
+    : "<b>Auswahl:</b> Flurstück " + esc(list[sel].label || "?") + " · " + list[sel].area.toLocaleString("de-DE") + " m²";
+  info(head + '<div class="chips">' + chips + "</div>", true);
+  document.getElementById("isea").querySelectorAll(".chip").forEach(b => {
+    b.onclick = e => { e.stopPropagation(); const i = Number(b.dataset.i); drawResult(list[i], true); showChoices(list, i); };
+  });
+}
+
+async function radiusFlow(spec, gem, km, opts) {
+  const c = opts.near || searchCenter();
+  diag = [];
+  if (!opts.quiet) info("Suche im Umkreis von " + km + " km …");
+  const list = await radiusSearch(spec, gem, c, km);
+  if (!list.length) {
+    if (!opts.quiet) {
+      info("Nichts gefunden im Umkreis von " + km + " km." + (km < MAX_KM ? ' <button class="chip" id="more">Umkreis ' + MAX_KM + " km</button>" : "") + "<br><small>" + esc(diag.join(" | ")) + "</small>", true);
+      const more = document.getElementById("more");
+      if (more) more.onclick = async e => { e.stopPropagation(); if (await radiusFlow(spec, gem, MAX_KM, opts)) closeSearch(); };
+    }
+    return false;
+  }
+  if (list.length === 1) { showResult(list[0], opts.fit !== false); return true; }
+  if (hl) { map.removeLayer(hl); hl = null; }
+  showChoices(list, -1);
+  return true;
+}
+
+function drawResult(res, fit = true) {
   if (hl) { map.removeLayer(hl); hl = null; }
   hl = drawPolys(res.polys, ORANGE);
   if (hl && fit) map.fitBounds(hl.getBounds(), { maxZoom: 19, padding: [30, 30] });
-  info("<b>Auswahl:</b> Flurstück " + esc(res.label || res.ref || document.getElementById("sz").value || "?") + " · " + res.area.toLocaleString("de-DE") + " m²");
+}
+function showResult(res, fit = true) {
+  drawResult(res, fit);
+  info("<b>Auswahl:</b> Flurstück " + esc(res.label || res.ref || "?") + " · " + res.area.toLocaleString("de-DE") + " m²");
 }
 
 async function search(opts = {}) {
-  const flur = document.getElementById("sf").value.trim();
-  const nr = document.getElementById("sz").value.trim().replace(/\s+/g, "");
-  const m = nr.match(/^(\d{1,5})(?:[\/-](\d{1,4}))?$/);
-  if (!/^\d{1,3}$/.test(flur) || !m) { info("Bitte Flur (Zahl) und Flurstück (z. B. 289 oder 289/2) eingeben."); return; }
-  diag = [];
-  if (!opts.quiet) info("Suche …");
+  const spec = opts.spec || parseInput(document.getElementById("sz").value);
+  if (!spec) { info("Bitte Flur und Flurstück eingeben, z. B. „3 289“ oder „289/2“."); return; }
   if (!opts.near && tapMarker) { map.removeLayer(tapMarker); tapMarker = null; }   // Ring vom Antippen entfernen
+  diag = [];
+  const gem = opts.gem || (/^\d{4}$/.test(sg.value.trim()) ? sg.value.trim() : null);
   try {
-    let gem = sg.value.trim();
-    if (!/^\d{4}$/.test(gem)) {   // Gemarkung aus der Kartenmitte ermitteln
-      const id = parseId(await fetchFI(map.getCenter()));
-      if (!id) { info("Gemarkung unbekannt. Schiebe die Kartenmitte auf ein Flurstück der Gemarkung oder gib die 4-stellige Gemarkungsnummer ein."); return; }
-      gem = id.gem; sg.value = gem;
+    if (gem && spec.flur != null) {   // alles bekannt: direkt über das Kennzeichen
+      if (!opts.quiet) info("Suche …");
+      const m = [null, String(spec.z), spec.n ? String(spec.n) : ""];
+      const gmlId = "CadastralParcel_" + LAND + gem + pad(spec.flur, 3) + pad(spec.z, 5) + (spec.n ? pad(spec.n, 4) : "____") + "__";
+      const key = "fs:" + gmlId;
+      let res = null;
+      try {   // Flurstücke ändern sich selten: Treffer 30 Tage lokal merken
+        const c = JSON.parse(localStorage.getItem(key) || "null");
+        if (c && Date.now() - c.t < CACHE_MAX_AGE) res = c.res;
+      } catch (e) {}
+      if (!res) {
+        res = await findParcel(gem, spec.flur, m, opts.near || searchCenter());
+        if (res) { try { localStorage.setItem(key, JSON.stringify({ t: Date.now(), res })); } catch (e) {} }
+      }
+      if (res) { showResult(res, opts.fit !== false); return true; }
     }
-    const nenner = m[2] ? pad(m[2], 4) : "____";
-    const gmlId = "CadastralParcel_" + LAND + gem + pad(flur, 3) + pad(m[1], 5) + nenner + "__";
-    const key = "fs:" + gmlId;
-    let res = null;
-    try {   // Flurstücke ändern sich selten: Treffer 30 Tage lokal merken
-      const c = JSON.parse(localStorage.getItem(key) || "null");
-      if (c && Date.now() - c.t < CACHE_MAX_AGE) res = c.res;
-    } catch (e) {}
-    if (!res) {
-      res = await findParcel(gem, flur, m, opts.near || map.getCenter());
-      if (res) { try { localStorage.setItem(key, JSON.stringify({ t: Date.now(), res })); } catch (e) {} }
-    }
-    if (!res) { if (!opts.quiet) info("Nicht gefunden: " + esc(gmlId) + "<br><small>" + esc(diag.join(" | ") || "keine Rückmeldung") + "</small>"); return; }
-    showResult(res, opts.fit !== false);
-    return true;
+    if (opts.quiet) return;   // Antippen: Fläche bleibt stehen, keine weitere Suche
+    return await radiusFlow(spec, gem, RADIUS_KM, opts);
   } catch (err) {
     if (!opts.quiet) info("Suche fehlgeschlagen (" + err.message + ").");
   }
@@ -414,10 +496,13 @@ async function doSearch() { if (await search()) closeSearch(); }
 document.getElementById("go").onclick = doSearch;
 document.getElementById("sbtn").onclick = () => {
   searchBox.classList.toggle("open");
-  if (searchBox.classList.contains("open")) document.getElementById("sf").focus();
+  if (searchBox.classList.contains("open")) {
+    document.getElementById("sz").focus();
+    if (!hl) info("<b>Auswahl:</b> Suche im Umkreis von " + RADIUS_KM + " km. Eingabe z. B. „3 289“ (Flur, Flurstück) oder „289/2“.");
+  }
 };
 document.getElementById("info").onclick = e => e.currentTarget.classList.toggle("open");
-document.getElementById("sz").addEventListener("keydown", e => { if (e.key === "Enter") doSearch(); });
+for (const id of ["sz", "sg"]) document.getElementById(id).addEventListener("keydown", e => { if (e.key === "Enter") doSearch(); });
 
 startTracking();   // Standort laufend anzeigen
 </script>
